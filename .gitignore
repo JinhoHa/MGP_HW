@@ -1,0 +1,16 @@
+
+*.vcxproj
+*.filters
+*.user
+*.lastbuildstate
+MGP/.vs/MGP/v16/.suo
+*.db
+*.opendb
+*.ipch
+*.exe
+*.ilk
+*.pdb
+*.sln
+*.obj
+*.tlog
+*.idb
