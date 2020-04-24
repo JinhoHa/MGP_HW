@@ -31,7 +31,7 @@ public:
 
 	bool contains(int key) {
 		// TODO
-		node* prev = this->head;
+		node* prev = head;
 		prev->node_mutex.lock();
 		node* curr = prev->next;
 		if (curr) { curr->node_mutex.lock(); }
