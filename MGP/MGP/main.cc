@@ -15,7 +15,7 @@ int PRNG(int seed1, int seed2) {
   key ^= key >> 5;
   key ^= key << 1;
   key ^= seed1;
-
+	
   return key;
 }
 
