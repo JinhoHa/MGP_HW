@@ -113,13 +113,23 @@ void strassen(const int* const A, const int* const B, int* const C, const int n)
   // M7 := (A12 - A22)(B21 + B22)
   ///////////////////////////////////////////////////////////
 
-  strassen(add(A11, A22, nn), add(B11, B22, nn), M1, nn);
-  strassen(add(A21, A22, nn), B11, M2, nn);
-  strassen(A11, sub(B12, B22, nn), M3, nn);
-  strassen(A22, sub(B21, B11, nn), M4, nn);
-  strassen(add(A11, A12, nn), B22, M5, nn);
-  strassen(sub(A21, A11, nn), add(B11, B12, nn), M6, nn);
-  strassen(sub(A12, A22, nn), add(B21, B22, nn), M7, nn);
+  int* const T1 = add(A11, A22, nn);
+  int* const T2 = add(B11, B22, nn);
+  int* const T3 = add(A21, A22, nn);
+  int* const T4 = sub(B12, B22, nn);
+  int* const T5 = sub(B21, B11, nn);
+  int* const T6 = add(A11, A12, nn);
+  int* const T7 = sub(A21, A11, nn);
+  int* const T8 = add(B11, B12, nn);
+  int* const T9 = sub(A12, A22, nn);
+  int* const T10 = add(B21, B22, nn);
+  strassen(T1, T2, M1, nn);
+  strassen(T3, B11, M2, nn);
+  strassen(A11, T4, M3, nn);
+  strassen(A22, T5, M4, nn);
+  strassen(T6, B22, M5, nn);
+  strassen(T7, T8, M6, nn);
+  strassen(T9, T10, M7, nn);
 
   ////////////////////////////////////////////////////
   // C11 := M1 + M4 - M5 + M7
@@ -161,6 +171,8 @@ void strassen(const int* const A, const int* const B, int* const C, const int n)
   free(B11); free(B12); free(B21); free(B22);
   free(C11); free(C12); free(C21); free(C22);
   free(M1); free(M2); free(M3); free(M4); free(M5); free(M6); free(M7);
+  free(T1); free(T2); free(T3); free(T4); free(T5);
+  free(T6); free(T7); free(T8); free(T9); free(T10);
 
   return;
 }
@@ -168,7 +180,40 @@ void strassen(const int* const A, const int* const B, int* const C, const int n)
 void matmul_optimized(const int* const matrixA, const int* const matrixB,
                       int* const matrixC, const int n) {
   // TODO: Implement your code
-  strassen(matrixA, matrixB, matrixC, n);
+  if(n == 2048 || n == 4096) {
+    strassen(matrixA, matrixB, matrixC, n);
+    return;
+  }
 
-  return;
+  // If n is not the shape of 2's exponential, make padding
+  // The size of new matrices is nn
+  int nn = n;
+  int mod = 1;
+  while (nn > 64) {
+    if (nn & 1) nn++;
+    nn >>= 1;
+    mod <<= 1;
+  }
+  nn *= mod;
+
+  int* const A = (int*)calloc(nn * nn, sizeof(int));
+  int* const B = (int*)calloc(nn * nn, sizeof(int));
+  int* const C = (int*)calloc(nn * nn, sizeof(int));
+
+  for(int i=0; i<n; i++){
+    for(int j=0; j<n; j++) {
+      A[i*nn + j] = matrixA[i*n + j];
+      B[i*nn + j] = matrixB[i*n + j];
+      C[i*nn + j] = matrixC[i*n + j];
+    }
+  }
+
+  strassen(A, B, C, nn);
+  for(int i=0; i<n; i++) {
+    for(int j=0; j<n; j++) {
+      matrixC[i*n + j] = C[i*nn + j];
+    }
+  }
+  free(A); free(B); free(C);
+
 }
