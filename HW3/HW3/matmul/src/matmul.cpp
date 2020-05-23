@@ -25,7 +25,7 @@ void matmul_ref(const int* const matrixA, const int* const matrixB,
 // 	cout << endl;
 // }
 
-const int THRESHOLD = 128;
+const int THRESHOLD = 512;
 
 int* const add(const int* const A, const int* const B, const int n) {
   int* const C = (int*)malloc(sizeof(int) * n * n);
