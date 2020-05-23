@@ -1,4 +1,9 @@
 #include "matmul.h"
+#include <thread>
+#include <vector>
+using namespace std;
+
+const int NUM_THREAD = 32;
 
 void matmul_ref(const int* const matrixA, const int* const matrixB,
                 int* const matrixC, const int n) {
@@ -9,15 +14,29 @@ void matmul_ref(const int* const matrixA, const int* const matrixB,
         matrixC[i * n + j] += matrixA[i * n + k] * matrixB[k * n + j];
 }
 
+void rowwise(int tid, const int* const A, const int* const B, int* const C, const int n) {
+	for (int i = tid; i < n; i += NUM_THREAD) {
+		for (int k = 0; k < n; k++) {
+			int a_ik = A[i*n + k];
+			for (int j = 0; j < n; j++) {
+				// C[i][j] += A[i][k] * B[k][j]
+				C[i*n + j] += a_ik * B[k*n + j];
+			}
+		}
+	}
+}
+
 void matmul_optimized(const int* const matrixA, const int* const matrixB,
                       int* const matrixC, const int n) {
   // TODO: Implement your code
-  for(int i=0; i<n; i++) {
-    for(int k=0; k<n; k++) {
-      int a_ik = matrixA[i*n + k];
-      for(int j=0; j<n; j++) {
-        matrixC[i*n + j] += a_ik * matrixB[k*n + j];
-      }
-    }
-  }
+
+	vector<thread> threads;
+	for (int i = 0; i < NUM_THREAD; i++) {
+		threads.push_back(thread(rowwise, i, matrixA, matrixB, matrixC, n));
+	}
+
+	for (thread& th : threads) {
+		th.join();
+	}
+
 }
