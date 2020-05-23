@@ -22,6 +22,8 @@ void matmul_ref(const int* const matrixA, const int* const matrixB,
 // 	cout << endl;
 // }
 
+const int THRESHOLD = 128;
+
 int* const add(const int* const A, const int* const B, const int n) {
   int* const C = (int*)malloc(sizeof(int) * n * n);
   for(int i=0; i<n*n; i++) {
@@ -39,7 +41,7 @@ int* const sub(const int* const A, const int* const B, const int n) {
 }
 
 void strassen(const int* const A, const int* const B, int* const C, const int n) {
-  if(n <= 64) {
+  if(n <= THRESHOLD) {
     for(int i=0; i<n; i++) {
       for(int k=0; k<n; k++) {
         int tmp = A[i*n + k];
@@ -189,7 +191,7 @@ void matmul_optimized(const int* const matrixA, const int* const matrixB,
   // The size of new matrices is nn
   int nn = n;
   int mod = 1;
-  while (nn > 64) {
+  while (nn > THRESHOLD) {
     if (nn & 1) nn++;
     nn >>= 1;
     mod <<= 1;
