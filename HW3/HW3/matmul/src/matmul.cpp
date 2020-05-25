@@ -3,7 +3,7 @@
 #include <vector>
 using namespace std;
 
-const int NUM_THREAD = 32;
+const int NUM_THREAD = 16;
 
 void matmul_ref(const int* const matrixA, const int* const matrixB,
                 int* const matrixC, const int n) {
