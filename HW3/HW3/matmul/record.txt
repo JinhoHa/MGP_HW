@@ -1,0 +1,9 @@
+n=2048
+ikj: 2.43
+strassen: 1.16
+ikj_multi: 0.22
+strassen_multi: 0.26
+
+n=4096
+ikj_multi: 2.32
+strassen_multi: 3.69
