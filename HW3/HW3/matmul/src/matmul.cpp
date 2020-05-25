@@ -1,6 +1,5 @@
 #include "matmul.h"
-#include <vector>
-#include <thread>
+#include <omp.h>
 using namespace std;
 
 void matmul_ref(const int* const matrixA, const int* const matrixB,
@@ -43,18 +42,13 @@ int* const sub(const int* const A, const int* const B, const int n) {
   return C;
 }
 
-void strassen(const int* const A, const int* const B, int* const C, const int n);
-void recur_stra(const int* const A, const int* const B, int* const C, const int n) {
-  strassen(A, B, C, n);
-}
-
 void strassen(const int* const A, const int* const B, int* const C, const int n) {
   if(n <= THRESHOLD) {
+    #pragma omp parallel for collapse(3)
     for(int i=0; i<n; i++) {
       for(int k=0; k<n; k++) {
-        int tmp = A[i*n + k];
         for(int j=0; j<n; j++) {
-          C[i*n + j] += tmp * B[k*n + j];
+          C[i*n + j] += A[i*n + k] * B[k*n + j];
         }
       }
     }
@@ -134,17 +128,36 @@ void strassen(const int* const A, const int* const B, int* const C, const int n)
   int* const T9 = sub(A12, A22, nn);
   int* const T10 = add(B21, B22, nn);
 
-  vector<thread> threads;
-  threads.push_back(thread(recur_stra, T1, T2, M1, nn));
-  threads.push_back(thread(recur_stra, T3, B11, M2, nn));
-  threads.push_back(thread(recur_stra, A11, T4, M3, nn));
-  threads.push_back(thread(recur_stra, A22, T5, M4, nn));
-  threads.push_back(thread(recur_stra, T6, B22, M5, nn));
-  threads.push_back(thread(recur_stra, T7, T8, M6, nn));
-  threads.push_back(thread(recur_stra, T9, T10, M7, nn));
-
-  for (thread& th : threads) {
-    th.join();
+  #pragma omp parallel sections
+  {
+    #pragma omp section
+    {
+      strassen(T1, T2, M1, nn);
+    }
+    #pragma omp section
+    {
+      strassen(T3, B11, M2, nn);
+    }
+    #pragma omp section
+    {
+      strassen(A11, T4, M3, nn);
+    }
+    #pragma omp section
+    {
+      strassen(A22, T5, M4, nn);
+    }
+    #pragma omp section
+    {
+      strassen(T6, B22, M5, nn);
+    }
+    #pragma omp section
+    {
+      strassen(T7, T8, M6, nn);
+    }
+    #pragma omp section
+    {
+      strassen(T9, T10, M7, nn);
+    }
   }
 
   ////////////////////////////////////////////////////
