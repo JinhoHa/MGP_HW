@@ -24,7 +24,7 @@ void matmul_ref(const int* const matrixA, const int* const matrixB,
 // 	cout << endl;
 // }
 
-const int THRESHOLD = 512;
+const int THRESHOLD = 128;
 
 int* const add(const int* const A, const int* const B, const int n) {
   int* const C = (int*)malloc(sizeof(int) * n * n);
@@ -44,11 +44,11 @@ int* const sub(const int* const A, const int* const B, const int n) {
 
 void strassen(const int* const A, const int* const B, int* const C, const int n) {
   if(n <= THRESHOLD) {
-    #pragma omp parallel for collapse(3)
     for(int i=0; i<n; i++) {
       for(int k=0; k<n; k++) {
+        int tmp = A[i*n + k];
         for(int j=0; j<n; j++) {
-          C[i*n + j] += A[i*n + k] * B[k*n + j];
+          C[i*n + j] += tmp * B[k*n + j];
         }
       }
     }
