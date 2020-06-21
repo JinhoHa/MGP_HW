@@ -10,16 +10,24 @@ public:
     void load_parameters(std::string value_path) override { LeNet5::load_parameters(value_path); };
     void print_parameters() override { LeNet5::print_parameters(); };
     bool compare(LeNet5* other) override { return LeNet5::compare(other); };
-    void prepare_device_memory(uint8_t* image); 
+    void prepare_device_memory(uint8_t* image);
     // Implement!
     LeNet5_cuda(int batch = 1) : LeNet5(batch) {};
     void predict(int batch) ;
     void predict(const uint8_t* const image, int batch) override {predict(batch);}
+    void normalize(const uint8_t* const image, double* input);
+    void relu(double* feature_map, int size);
+    void conv(double* input, double* output, double* weight, double* bias,
+              int B, int H, int W, int IC, int OC, int K);
+    void pool(double* input, double* output,
+              int B, int C, int H, int W);
+    void fc(double* input, double* output, double* weight, double* bias,
+            int B, int IC, int OC);
     void classify(int* predict, int batch) override;
     ~LeNet5_cuda();
 private:
     //////////////////////////////////////////////////
-    //Device Weights 
+    //Device Weights
     //////////////////////////////////////////////////
     double* d_conv1_weight;   // [3][6][5][5];
     double* d_conv2_weight;   // [6][16][5][5];
@@ -64,7 +72,7 @@ private:
       }
     }
 
- 
+
 };
 
 #endif
