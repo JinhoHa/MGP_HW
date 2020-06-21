@@ -15,7 +15,8 @@ public:
     LeNet5_cuda(int batch = 1) : LeNet5(batch) {};
     void predict(int batch) ;
     void predict(const uint8_t* const image, int batch) override {predict(batch);}
-    void normalize(const uint8_t* const image, double* input);
+    // __global__
+    // void normalize(double* input);
     void relu(double* feature_map, int size);
     void conv(double* input, double* output, double* weight, double* bias,
               int B, int H, int W, int IC, int OC, int K);

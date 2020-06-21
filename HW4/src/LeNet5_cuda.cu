@@ -1,13 +1,29 @@
 #include "LeNet5_cuda.h"
 
+__global__
+void normalize(uint8_t* image, double* input, int batch, int input_channel, int input_size) {
+  // Initialize variables
+  double max_int = 255.0L;
+  double mean = 0.5L;
+  double var = 0.5L;
+  // Normalize
+  for (int i = 0; i < batch * input_channel * input_size * input_size; i++) {
+    input[i] = image[i] / max_int;       // transforms.ToTensor();
+    input[i] = (input[i] - mean) / var;  // transforms.Normalize();
+  }
+}
+
 void LeNet5_cuda::predict(int batch) {
-  uint8_t* image;
-  image = new uint8_t[batch * IMG_SIZE];
-  size_t image_size = batch * input_size * input_size * input_channel;
-  cudaMemcpy(image, d_image, image_size * sizeof(uint8_t),
-             cudaMemcpyDeviceToHost);
+  // uint8_t* image;
+  // image = new uint8_t[batch * IMG_SIZE];
+  // size_t image_size = batch * input_size * input_size * input_channel;
+  // cudaMemcpy(image, d_image, image_size * sizeof(uint8_t),
+  //            cudaMemcpyDeviceToHost);
   // ToTensor and Normalize
-  normalize(image, input);
+  normalize<<<1, 1>>>(d_image, d_input, batch, input_channel, input_size);
+  cudaMemcpy(input, d_input,
+             batch * input_size * input_size * input_channel * sizeof(double),
+             cudaMemcpyDeviceToHost);
   // Conv2d
   conv(input, C1_feature_map, conv1_weight, conv1_bias, batch, input_size,
       input_size, conv1_in_channel, conv1_out_channel, conv1_kernel_size);
@@ -52,17 +68,6 @@ void LeNet5_cuda::predict(int batch) {
     */
 }
 
-void LeNet5_cuda::normalize(const uint8_t* const image, double* input) {
-  // Initialize variables
-  double max_int = 255.0L;
-  double mean = 0.5L;
-  double var = 0.5L;
-  // Normalize
-  for (int i = 0; i < batch * input_channel * input_size * input_size; i++) {
-    input[i] = image[i] / max_int;       // transforms.ToTensor();
-    input[i] = (input[i] - mean) / var;  // transforms.Normalize();
-  }
-}
 
 void LeNet5_cuda::relu(double* feature_map, int size) {
   // relu
