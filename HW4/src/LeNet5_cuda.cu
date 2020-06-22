@@ -82,6 +82,60 @@ void cuda_relu(double* feature_map) {
     feature_map[taskIdx] = 0.0;
 }
 
+__global__
+void cuda_pool(double* input, double* output) {
+  // // Initilaize variable
+  // int scale = 2;
+  // int H_OUT = H / scale;
+  // int W_OUT = W / scale;
+  // // Max Pooling
+  // for (int b = 0; b < B; b++)
+  //   for (int c = 0; c < C; c++)
+  //     for (int h = 0; h < H; h += 2)
+  //       for (int w = 0; w < W; w += 2) {
+  //         // Init values
+  //         int input_base = b * (C * H * W) + c * (H * W) + h * (W) + w;
+  //         int max_sh = 0;
+  //         int max_sw = 0;
+  //         double max_val = std::numeric_limits<double>::lowest();
+  //         // Find maximum
+  //         for (int sh = 0; sh < scale; sh++)
+  //           for (int sw = 0; sw < scale; sw++) {
+  //             double val = input[input_base + sh * (W) + sw];
+  //             if (val - max_val > std::numeric_limits<double>::epsilon()) {
+  //               max_val = val;
+  //               max_sh = sh;
+  //               max_sw = sw;
+  //             }
+  //           }
+  //         // Set output with max value
+  //         int output_index = b * (C * H_OUT * W_OUT) + c * (H_OUT * W_OUT) +
+  //                            (h / 2) * W_OUT + (w / 2);
+  //         output[output_index] = max_val;
+  //       }
+  // blockIdx.y : BATCH
+  // blockIdx.x : Channel
+  // threadIdx.y : output h
+  // threadIdx.x : output w
+  int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
+                + blockIdx.x * blockDim.y * blockDim.x
+                + threadIdx.y * blockDim.x
+                + threadIdx.x;
+  int input_base = blockIdx.y * gridDim.x * (2*blockDim.y) * (2*blockDim.x)
+                + blockIdx.x * (2*blockDim.y) * (2*blockDim.x)
+                + (2*threadIdx.y) * (2*blockDim.x)
+                + (2*threadIdx.x);
+  double max_val = 0.0;
+  for (int sh = 0; sh < 2; sh++)
+    for (int sw = 0; sw < 2; sw++) {
+      double val = input[input_base + sh * (2*blockDim.x) + sw];
+      if(val > max_val) {
+        max_val = val;
+      }
+    }
+  output[taskIdx] = max_val;
+}
+
 void LeNet5_cuda::predict(int batch) {
   // uint8_t* image;
   // image = new uint8_t[batch * IMG_SIZE];
@@ -115,12 +169,20 @@ void LeNet5_cuda::predict(int batch) {
   cuda_relu<<<DimGrid, DimBlock>>>(d_C1_feature_map);
   cudaDeviceSynchronize();
 
-  cudaMemcpy(C1_feature_map, d_C1_feature_map,
-             batch * conv1_out_channel * C1_size * C1_size * sizeof(double),
-             cudaMemcpyDeviceToHost);
+  // cudaMemcpy(C1_feature_map, d_C1_feature_map,
+  //            batch * conv1_out_channel * C1_size * C1_size * sizeof(double),
+  //            cudaMemcpyDeviceToHost);
 
   // MaxPool2d
-  pool(C1_feature_map, S2_feature_map, batch, C1_channel, C1_size, C1_size);
+  DimGrid.y = batch; DimGrid.x = C1_channel;
+  DimBlock.y = C1_size / 2; DimBlock.x = C1_size / 2;
+  cuda_pool<<<DimGrid, DimBlock>>>(d_C1_feature_map, d_S2_feature_map);
+  cudaDeviceSynchronize();
+
+  cudaMemcpy(S2_feature_map, d_S2_feature_map,
+             batch * C1_channel * (C1_size / 2) * (C1_size / 2) * sizeof(double),
+             cudaMemcpyDeviceToHost);
+
   // Conv2d
   conv(S2_feature_map, C3_feature_map, conv2_weight, conv2_bias, batch, S2_size,
       S2_size, conv2_in_channel, conv2_out_channel, conv2_kernel_size);
