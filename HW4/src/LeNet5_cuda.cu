@@ -12,14 +12,64 @@ void normalize(uint8_t* image, double* input, int batch, int input_channel, int 
   //   input[i] = (input[i] - mean) / var;  // transforms.Normalize();
   // }
   // cuda
-  // blockIdx.x : batch, blockIdx.y : Channel
-  // threadIdx.x : input_size, threadIdx.y : input_size
+  // blockIdx.y : batch, blockIdx.x : Channel
+  // threadIdx.y : input_size, threadIdx.x : input_size
   int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
                 + blockIdx.x * blockDim.y * blockDim.x
                 + threadIdx.y * blockDim.x
                 + threadIdx.x;
   input[taskIdx] = image[taskIdx] / max_int;
   input[taskIdx] = (input[taskIdx] - mean) / var;
+}
+
+__global__
+void cuda_conv(double* input, double* output, double* weight,
+                      double* bias, int B, int H, int W, int IC, int OC,
+                      int K) {
+  // // Initialize variable
+  // int H_OUT = H - (K - 1);
+  // int W_OUT = W - (K - 1);
+  // Convolution
+  // for (int b = 0; b < B; b++)              // mini-batch
+  //   for (int oc = 0; oc < OC; oc++) {      // Output Channel
+  //     for (int h = 0; h < H_OUT; h++)      // Height
+  //       for (int w = 0; w < W_OUT; w++) {  // Width
+  //         int output_index =
+  //             b * (OC * H_OUT * W_OUT) + oc * (H_OUT * W_OUT) + h * W_OUT + w;
+  //         output[output_index] = bias[oc];
+  //         for (int ic = 0; ic < IC; ic++) {
+  //           int input_base = b * (IC * H * W) + ic * (H * W) + h * (W) + w;
+  //           int kernel_base = oc * (IC * K * K) + ic * (K * K);
+  //           for (int kh = 0; kh < K; kh++)
+  //             for (int kw = 0; kw < K; kw++) {
+  //               double val = input[input_base + kh * (W) + kw] *
+  //                            weight[kernel_base + kh * (K) + kw];
+  //               output[output_index] += val;
+  //             }
+  //         }
+  //       }
+  //   }
+
+    // blockIdx.y : mini-batch (b)
+    // blockIdx.x : output Channel (oc)
+    // threadIdx.y : Height (h)
+    // threadIdx.x : Width (w)
+    int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
+                  + blockIdx.x * blockDim.y * blockDim.x
+                  + threadIdx.y * blockDim.x
+                  + threadIdx.x;
+    double val = bias[blockIdx.x];
+    for (int ic=0; ic<IC; ic++) {
+      int input_base = blockIdx.y * (IC * H * W) + ic * (H * W)
+                       + threadIdx.y * (W) + threadIdx.x;
+      int kernel_base = blockIdx.x * (IC * K * K) + ic * (K * K);
+      for (int kh = 0; kh < K; kh++)
+        for (int kw = 0; kw < K; kw++) {
+          val += input[input_base + kh * (W) + kw] *
+                 weight[kernel_base + kh * (K) + kw];
+        }
+    }
+    output[taskIdx] = val;
 }
 
 void LeNet5_cuda::predict(int batch) {
@@ -29,16 +79,27 @@ void LeNet5_cuda::predict(int batch) {
   // cudaMemcpy(image, d_image, image_size * sizeof(uint8_t),
   //            cudaMemcpyDeviceToHost);
   // ToTensor and Normalize
-  dim3 DimGrid(batch, input_channel);
+  dim3 DimGrid(input_channel, batch);
   dim3 DimBlock(input_size, input_size);
   normalize<<<DimGrid, DimBlock>>>(d_image, d_input, batch, input_channel, input_size);
   cudaDeviceSynchronize();
-  cudaMemcpy(input, d_input,
-             batch * input_size * input_size * input_channel * sizeof(double),
-             cudaMemcpyDeviceToHost);
+
+  // cudaMemcpy(input, d_input,
+  //            batch * input_size * input_size * input_channel * sizeof(double),
+  //            cudaMemcpyDeviceToHost);
+
   // Conv2d
-  conv(input, C1_feature_map, conv1_weight, conv1_bias, batch, input_size,
+  DimGrid.y = batch; DimGrid.x = conv1_out_channel;
+  DimBlock.y = input_size - (conv1_kernel_size - 1);
+  DimBlock.x = input_size - (conv1_kernel_size - 1);
+  cuda_conv<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, batch, input_size,
       input_size, conv1_in_channel, conv1_out_channel, conv1_kernel_size);
+  cudaDeviceSynchronize();
+
+  cudaMemcpy(C1_feature_map, d_C1_feature_map,
+             batch * conv1_out_channel * C1_size * C1_size * sizeof(double),
+             cudaMemcpyDeviceToHost);
+
   relu(C1_feature_map, batch * C1_channel * C1_size * C1_size);
   // MaxPool2d
   pool(C1_feature_map, S2_feature_map, batch, C1_channel, C1_size, C1_size);
