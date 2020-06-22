@@ -73,6 +73,67 @@ void cuda_conv(double* input, double* output, double* weight,
 }
 
 __global__
+void cuda_conv1(double* input, double* output, double* weight,
+                      double* bias, int B, int H, int W, int IC, int OC,
+                      int K) {
+    // // blockIdx.y : mini-batch (b)
+    // // blockIdx.x : output Channel (oc)
+    // // threadIdx.y : Height (h)
+    // // threadIdx.x : Width (w)
+    // int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
+    //               + blockIdx.x * blockDim.y * blockDim.x
+    //               + threadIdx.y * blockDim.x
+    //               + threadIdx.x;
+    // double val = bias[blockIdx.x];
+    // for (int ic=0; ic<IC; ic++) {
+    //   int input_base = blockIdx.y * (IC * H * W) + ic * (H * W)
+    //                    + threadIdx.y * (W) + threadIdx.x;
+    //   int kernel_base = blockIdx.x * (IC * K * K) + ic * (K * K);
+    //   for (int kh = 0; kh < K; kh++)
+    //     for (int kw = 0; kw < K; kw++) {
+    //       val += input[input_base + kh * (W) + kw] *
+    //              weight[kernel_base + kh * (K) + kw];
+    //     }
+    // }
+    // output[taskIdx] = val;
+
+    int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
+                  + blockIdx.x * blockDim.y * blockDim.x
+                  + threadIdx.y * blockDim.x
+                  + threadIdx.x;
+
+    __shared__ double input_sh[32][32];
+    __shared__ double weight_sh[5][5];
+    double val = bias[blockIdx.x];
+    for (int ic = 0; ic < IC; ic++) {
+      // load weights to shared memory
+      if(threadIdx.y < K && threadIdx.x < K) {
+        weight_sh[threadIdx.y][threadIdx.x] = weight[
+          blockIdx.x * IC * K * K + ic * K * K + threadIdx.y * K + threadIdx.x];
+      }
+      __syncthreads();
+
+      // load input to shared memory
+      int input_base = blockIdx.y * (IC * H * W) + ic * (H * W);
+      for(int ih = threadIdx.y; ih < H; ih += blockDim.y) {
+        for(int iw = threadIdx.x; iw < W; iw += blockDim.x) {
+          input_sh[ih][iw] = input[input_base + ih * W + iw];
+        }
+      }
+      __syncthreads();
+
+      for (int kh = 0; kh < K; kh++) {
+        for (int kw = 0; kw < K; kw++) {
+          val += input_sh[threadIdx.y + kh][threadIdx.x + kw] *
+                 weight_sh[kh][kw];
+        }
+      }
+      __syncthreads();
+    }
+    output[taskIdx] = val;
+}
+
+__global__
 void cuda_relu(double* feature_map) {
   // for (int i = 0; i < size; i++) feature_map[i] = std::max(feature_map[i], 0.0);
   // blockIdx.x : [batch, channel]
@@ -177,7 +238,7 @@ void LeNet5_cuda::predict(int batch) {
   DimGrid.y = batch; DimGrid.x = conv1_out_channel;
   DimBlock.y = input_size - (conv1_kernel_size - 1);
   DimBlock.x = input_size - (conv1_kernel_size - 1);
-  cuda_conv<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, batch, input_size,
+  cuda_conv1<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, batch, input_size,
       input_size, conv1_in_channel, conv1_out_channel, conv1_kernel_size);
   cudaDeviceSynchronize();
 
@@ -281,84 +342,6 @@ void LeNet5_cuda::predict(int batch) {
     *  you need to write your output to the device memory d_output
     *  so that classify() can handle the rest.
     */
-}
-
-
-void LeNet5_cuda::relu(double* feature_map, int size) {
-  // relu
-  for (int i = 0; i < size; i++) feature_map[i] = std::max(feature_map[i], 0.0);
-}
-
-void LeNet5_cuda::conv(double* input, double* output, double* weight,
-                      double* bias, int B, int H, int W, int IC, int OC,
-                      int K) {
-  // Initialize variable
-  int H_OUT = H - (K - 1);
-  int W_OUT = W - (K - 1);
-  // Convolution
-  for (int b = 0; b < B; b++)              // mini-batch
-    for (int oc = 0; oc < OC; oc++) {      // Output Channel
-      for (int h = 0; h < H_OUT; h++)      // Height
-        for (int w = 0; w < W_OUT; w++) {  // Width
-          int output_index =
-              b * (OC * H_OUT * W_OUT) + oc * (H_OUT * W_OUT) + h * W_OUT + w;
-          output[output_index] = bias[oc];
-          for (int ic = 0; ic < IC; ic++) {
-            int input_base = b * (IC * H * W) + ic * (H * W) + h * (W) + w;
-            int kernel_base = oc * (IC * K * K) + ic * (K * K);
-            for (int kh = 0; kh < K; kh++)
-              for (int kw = 0; kw < K; kw++) {
-                double val = input[input_base + kh * (W) + kw] *
-                             weight[kernel_base + kh * (K) + kw];
-                output[output_index] += val;
-              }
-          }
-        }
-    }
-}
-
-void LeNet5_cuda::pool(double* input, double* output, int B, int C, int H,
-                      int W) {
-  // Initilaize variable
-  int scale = 2;
-  int H_OUT = H / scale;
-  int W_OUT = W / scale;
-  // Max Pooling
-  for (int b = 0; b < B; b++)
-    for (int c = 0; c < C; c++)
-      for (int h = 0; h < H; h += 2)
-        for (int w = 0; w < W; w += 2) {
-          // Init values
-          int input_base = b * (C * H * W) + c * (H * W) + h * (W) + w;
-          int max_sh = 0;
-          int max_sw = 0;
-          double max_val = std::numeric_limits<double>::lowest();
-          // Find maximum
-          for (int sh = 0; sh < scale; sh++)
-            for (int sw = 0; sw < scale; sw++) {
-              double val = input[input_base + sh * (W) + sw];
-              if (val - max_val > std::numeric_limits<double>::epsilon()) {
-                max_val = val;
-                max_sh = sh;
-                max_sw = sw;
-              }
-            }
-          // Set output with max value
-          int output_index = b * (C * H_OUT * W_OUT) + c * (H_OUT * W_OUT) +
-                             (h / 2) * W_OUT + (w / 2);
-          output[output_index] = max_val;
-        }
-}
-
-void LeNet5_cuda::fc(double* input, double* output, double* weight, double* bias,
-                    int B, int IC, int OC) {
-  // Fully Connected
-  for (int b = 0; b < B; b++)
-    for (int oc = 0; oc < OC; oc++) {
-      output[b * OC + oc] = bias[oc];
-      for (int ic = 0; ic < IC; ic++)
-        output[b * OC + oc] += weight[oc * IC + ic] * input[b * IC + ic];
-    }
 }
 
 void LeNet5_cuda::prepare_device_memory(uint8_t* image) {

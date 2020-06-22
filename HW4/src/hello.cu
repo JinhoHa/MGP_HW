@@ -26,5 +26,6 @@ int main(void) {
   DimBlock.x = 2; DimBlock.y = 3;
   print_from_gpu<<<DimGrid, DimBlock>>>();
   cudaDeviceSynchronize();
+  printf("sizeof(double): %d", sizeof(double));
   return 0;
 }
