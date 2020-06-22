@@ -224,23 +224,46 @@ void LeNet5_cuda::predict(int batch) {
   cuda_pool<<<DimGrid, DimBlock>>>(d_C3_feature_map, d_S4_feature_map);
   cudaDeviceSynchronize();
 
-  cudaMemcpy(S4_feature_map, d_S4_feature_map,
-             batch * C3_channel * (C3_size / 2) * (C3_size / 2) * sizeof(double),
-             cudaMemcpyDeviceToHost);
+  // cudaMemcpy(S4_feature_map, d_S4_feature_map,
+  //            batch * C3_channel * (C3_size / 2) * (C3_size / 2) * sizeof(double),
+  //            cudaMemcpyDeviceToHost);
 
   // Linear
-  fc(S4_feature_map, C5_layer, fc1_weight, fc1_bias, batch, fc1_in_channel,
-    fc1_out_channel);
-  relu(C5_layer, batch * C5_size);
+  DimGrid.y = 1; DimGrid.x = batch;
+  DimBlock.y = 1; DimBlock.x = fc1_out_channel;
+  cuda_fc<<<DimGrid, DimBlock>>>(d_S4_feature_map, d_C5_layer,
+    d_fc1_weight, d_fc1_bias, fc1_in_channel);
+  cudaDeviceSynchronize();
+
+  // cudaMemcpy(C5_layer, d_C5_layer,
+  //            batch * fc1_out_channel * sizeof(double),
+  //            cudaMemcpyDeviceToHost);
+
+  DimGrid.y = 1; DimGrid.x = batch;
+  DimBlock.y = 1; DimBlock.x = C5_size;
+  cuda_relu<<<DimGrid, DimBlock>>>(d_C5_layer);
+  cudaDeviceSynchronize();
+
   // Linear
-  fc(C5_layer, F6_layer, fc2_weight, fc2_bias, batch, fc2_in_channel,
-    fc2_out_channel);
-  relu(F6_layer, batch * F6_size);
+  DimGrid.y = 1; DimGrid.x = batch;
+  DimBlock.y = 1; DimBlock.x = fc2_out_channel;
+  cuda_fc<<<DimGrid, DimBlock>>>(d_C5_layer, d_F6_layer,
+    d_fc2_weight, d_fc2_bias, fc2_in_channel);
+  cudaDeviceSynchronize();
+
+  DimGrid.y = 1; DimGrid.x = batch;
+  DimBlock.y = 1; DimBlock.x = F6_size;
+  cuda_relu<<<DimGrid, DimBlock>>>(d_F6_layer);
+  cudaDeviceSynchronize();
+
   // Linear
-  fc(F6_layer, output, fc3_weight, fc3_bias, batch, fc3_in_channel,
-    fc3_out_channel);
-  cudaMemcpy(d_output, output, sizeof(double) * output_size * batch,
-             cudaMemcpyHostToDevice);
+  DimGrid.y = 1; DimGrid.x = batch;
+  DimBlock.y = 1; DimBlock.x = fc3_out_channel;
+  cuda_fc<<<DimGrid, DimBlock>>>(d_F6_layer, d_output,
+    d_fc3_weight, d_fc3_bias, fc3_in_channel);
+  cudaDeviceSynchronize();
+  // cudaMemcpy(d_output, output, sizeof(double) * output_size * batch,
+  //            cudaMemcpyHostToDevice);
 
     // TODO: Implement conv1
     // TODO: Implement relu
