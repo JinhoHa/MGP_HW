@@ -72,6 +72,16 @@ void cuda_conv(double* input, double* output, double* weight,
     output[taskIdx] = val;
 }
 
+__global__
+void cuda_relu(double* feature_map) {
+  // for (int i = 0; i < size; i++) feature_map[i] = std::max(feature_map[i], 0.0);
+  // blockIdx.x : [batch, channel]
+  // threadIdx.x : [H, W]
+  int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (feature_map[taskIdx] < 0.0)
+    feature_map[taskIdx] = 0.0;
+}
+
 void LeNet5_cuda::predict(int batch) {
   // uint8_t* image;
   // image = new uint8_t[batch * IMG_SIZE];
@@ -96,11 +106,19 @@ void LeNet5_cuda::predict(int batch) {
       input_size, conv1_in_channel, conv1_out_channel, conv1_kernel_size);
   cudaDeviceSynchronize();
 
+  // cudaMemcpy(C1_feature_map, d_C1_feature_map,
+  //            batch * conv1_out_channel * C1_size * C1_size * sizeof(double),
+  //            cudaMemcpyDeviceToHost);
+
+  DimGrid.y = 1; DimGrid.x = batch * C1_channel;
+  DimBlock.y = 1; DimBlock.x = C1_size * C1_size;
+  cuda_relu<<<DimGrid, DimBlock>>>(d_C1_feature_map);
+  cudaDeviceSynchronize();
+
   cudaMemcpy(C1_feature_map, d_C1_feature_map,
              batch * conv1_out_channel * C1_size * C1_size * sizeof(double),
              cudaMemcpyDeviceToHost);
 
-  relu(C1_feature_map, batch * C1_channel * C1_size * C1_size);
   // MaxPool2d
   pool(C1_feature_map, S2_feature_map, batch, C1_channel, C1_size, C1_size);
   // Conv2d
