@@ -136,6 +136,27 @@ void cuda_pool(double* input, double* output) {
   output[taskIdx] = max_val;
 }
 
+__global__
+void cuda_fc(double* input, double* output, double* weight, double* bias,
+                    int IC) {
+  // // Fully Connected
+  // for (int b = 0; b < B; b++)
+  //   for (int oc = 0; oc < OC; oc++) {
+  //     output[b * OC + oc] = bias[oc];
+  //     for (int ic = 0; ic < IC; ic++)
+  //       output[b * OC + oc] += weight[oc * IC + ic] * input[b * IC + ic];
+  //   }
+
+  // blockIdx.x : BATCH
+  // threadIdx.x : out_channel
+  int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
+  double val = bias[threadIdx.x];
+  for(int ic=0; ic<IC; ic++) {
+    val += weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
+  }
+  output[taskIdx] = val;
+}
+
 void LeNet5_cuda::predict(int batch) {
   // uint8_t* image;
   // image = new uint8_t[batch * IMG_SIZE];
@@ -179,16 +200,34 @@ void LeNet5_cuda::predict(int batch) {
   cuda_pool<<<DimGrid, DimBlock>>>(d_C1_feature_map, d_S2_feature_map);
   cudaDeviceSynchronize();
 
-  cudaMemcpy(S2_feature_map, d_S2_feature_map,
-             batch * C1_channel * (C1_size / 2) * (C1_size / 2) * sizeof(double),
-             cudaMemcpyDeviceToHost);
+  // cudaMemcpy(S2_feature_map, d_S2_feature_map,
+  //            batch * C1_channel * (C1_size / 2) * (C1_size / 2) * sizeof(double),
+  //            cudaMemcpyDeviceToHost);
 
   // Conv2d
-  conv(S2_feature_map, C3_feature_map, conv2_weight, conv2_bias, batch, S2_size,
+  DimGrid.y = batch; DimGrid.x = conv2_out_channel;
+  DimBlock.y = S2_size - (conv2_kernel_size - 1);
+  DimBlock.x = S2_size - (conv2_kernel_size - 1);
+  cuda_conv<<<DimGrid, DimBlock>>>(d_S2_feature_map, d_C3_feature_map,
+      d_conv2_weight, d_conv2_bias, batch, S2_size,
       S2_size, conv2_in_channel, conv2_out_channel, conv2_kernel_size);
-  relu(C3_feature_map, batch * C3_channel * C3_size * C3_size);
+  cudaDeviceSynchronize();
+
+  DimGrid.y = 1; DimGrid.x = batch * C3_channel;
+  DimBlock.y = 1; DimBlock.x = C3_size * C3_size;
+  cuda_relu<<<DimGrid, DimBlock>>>(d_C3_feature_map);
+  cudaDeviceSynchronize();
+
   // MaxPool2d
-  pool(C3_feature_map, S4_feature_map, batch, C3_channel, C3_size, C3_size);
+  DimGrid.y = batch; DimGrid.x = C3_channel;
+  DimBlock.y = C3_size / 2; DimBlock.x = C3_size / 2;
+  cuda_pool<<<DimGrid, DimBlock>>>(d_C3_feature_map, d_S4_feature_map);
+  cudaDeviceSynchronize();
+
+  cudaMemcpy(S4_feature_map, d_S4_feature_map,
+             batch * C3_channel * (C3_size / 2) * (C3_size / 2) * sizeof(double),
+             cudaMemcpyDeviceToHost);
+
   // Linear
   fc(S4_feature_map, C5_layer, fc1_weight, fc1_bias, batch, fc1_in_channel,
     fc1_out_channel);
