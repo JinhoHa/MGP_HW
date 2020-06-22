@@ -6,11 +6,20 @@ void normalize(uint8_t* image, double* input, int batch, int input_channel, int 
   double max_int = 255.0L;
   double mean = 0.5L;
   double var = 0.5L;
-  // Normalize
-  for (int i = 0; i < batch * input_channel * input_size * input_size; i++) {
-    input[i] = image[i] / max_int;       // transforms.ToTensor();
-    input[i] = (input[i] - mean) / var;  // transforms.Normalize();
-  }
+  // // Normalize
+  // for (int i = 0; i < batch * input_channel * input_size * input_size; i++) {
+  //   input[i] = image[i] / max_int;       // transforms.ToTensor();
+  //   input[i] = (input[i] - mean) / var;  // transforms.Normalize();
+  // }
+  // cuda
+  // blockIdx.x : batch, blockIdx.y : Channel
+  // threadIdx.x : input_size, threadIdx.y : input_size
+  int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
+                + blockIdx.x * blockDim.y * blockDim.x
+                + threadIdx.y * blockDim.x
+                + threadIdx.x;
+  input[taskIdx] = image[taskIdx] / max_int;
+  input[taskIdx] = (input[taskIdx] - mean) / var;
 }
 
 void LeNet5_cuda::predict(int batch) {
@@ -20,7 +29,10 @@ void LeNet5_cuda::predict(int batch) {
   // cudaMemcpy(image, d_image, image_size * sizeof(uint8_t),
   //            cudaMemcpyDeviceToHost);
   // ToTensor and Normalize
-  normalize<<<1, 1>>>(d_image, d_input, batch, input_channel, input_size);
+  dim3 DimGrid(batch, input_channel);
+  dim3 DimBlock(input_size, input_size);
+  normalize<<<DimGrid, DimBlock>>>(d_image, d_input, batch, input_channel, input_size);
+  cudaDeviceSynchronize();
   cudaMemcpy(input, d_input,
              batch * input_size * input_size * input_channel * sizeof(double),
              cudaMemcpyDeviceToHost);

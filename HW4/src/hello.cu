@@ -12,7 +12,9 @@ __global__ void print_from_gpu(void) {
 
 int main(void) {
   printf("Hello World from host!\n");
-  print_from_gpu<<<2, 3>>>();
+  print_from_gpu<<<4, 16>>>();
+  cudaDeviceSynchronize();
+  printf("Can this be ahead of kernel?\n");
   cudaDeviceSynchronize();
   return 0;
 }
