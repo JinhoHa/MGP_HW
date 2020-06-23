@@ -45,6 +45,9 @@ private:
     double* d_output;         // [batch][10];
     int*    d_predict_cuda;   // [batch];
 
+    double* d_input_col;         // [batch][3*5*5][28*28]
+
+
      // Functions
     void cpu_normalize(const uint8_t* const image, double* input);
     void cpu_relu(double* feature_map, int size);

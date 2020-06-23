@@ -207,6 +207,59 @@ void cuda_conv2(double* input, double* output, double* weight,
 }
 
 __global__
+void cuda_im2col(double* input, double* output_col, int H, int W, int K) {
+  // blockIdx.y : mini-batch (b)
+  // blockIdx.x : input Channel (ic)
+  // threadIdx.y : Height (h), blockDim.y = H_OUT
+  // threadIdx.x : Width (w), blockDim.x = W_OUT
+  int b = blockIdx.y;
+  int ic = blockIdx.x;
+  int h = threadIdx.y;
+  int w = threadIdx.x;
+  int IC = gridDim.x;
+  int H_OUT = blockDim.y;
+  int W_OUT = blockDim.x;
+  int C_base = ic * K * K;
+  for(int p=0; p<K; p++) {
+    for(int q=0; q<K; q++) {
+      int y = C_base + p * K + q;
+      int x = h * W_OUT + w;
+      output_col[b * (IC * K * K) * (H_OUT * W_OUT) + y * (H_OUT * W_OUT) + x] =
+        input[b * IC * H * W + ic * H * W + (h + p) * W + (w + q)];
+    }
+  }
+}
+
+__global__
+void cuda_mm(double* input, double* output, double* weight, double* bias, int IC, int K) {
+  // blockIdx.y : mini-batch (b)
+  // blockIdx.x : output Channel (oc)
+  // threadIdx.y : Height (h), blockDim.y = H_OUT
+  // threadIdx.x : Width (w), blockDim.x = W_OUT
+  int b = blockIdx.y;
+  int oc = blockIdx.x;
+  int h = threadIdx.y;
+  int w = threadIdx.x;
+  int OC = gridDim.x;
+  int H_OUT = blockDim.y;
+  int W_OUT = blockDim.x;
+  // int K2 = K * K;
+  int ICKK = IC * K * K;
+
+  double val = bias[oc];
+  // for(int ic = 0; ic < IC; ic++) {
+  //   for(int k = 0; k < K2; k++) {
+  //     val += weight[b * IC * OC * K2 + ic * OC * K2 + oc * K2 + k]
+  //           * input[b * IC * K2 * H_OUT * W_OUT + ic * K2 * H_OUT * W_OUT + k * H_OUT * W_OUT + h * W_OUT + w];
+  //   }
+  // }
+  for(int i = 0; i < ICKK; i++) {
+    val += weight[oc * ICKK + i] * input[b * ICKK * (H_OUT * W_OUT) + i * (H_OUT * W_OUT) + h * W_OUT + w];
+  }
+  output[b * OC * H_OUT * W_OUT + oc * H_OUT * W_OUT + h * W_OUT + w] = val;
+}
+
+__global__
 void cuda_relu(double* feature_map) {
   // for (int i = 0; i < size; i++) feature_map[i] = std::max(feature_map[i], 0.0);
   // blockIdx.x : [batch, channel]
@@ -308,12 +361,12 @@ void LeNet5_cuda::predict(int batch) {
   //            cudaMemcpyDeviceToHost);
 
   // Conv2d
-  DimGrid.y = batch; DimGrid.x = conv1_out_channel;
-  DimBlock.y = input_size - (conv1_kernel_size - 1);
-  DimBlock.x = input_size - (conv1_kernel_size - 1);
-  cuda_conv<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, batch, input_size,
-      input_size, conv1_in_channel, conv1_out_channel, conv1_kernel_size);
-  cudaDeviceSynchronize();
+  // DimGrid.y = batch; DimGrid.x = conv1_out_channel;
+  // DimBlock.y = input_size - (conv1_kernel_size - 1);
+  // DimBlock.x = input_size - (conv1_kernel_size - 1);
+  // cuda_conv<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, batch, input_size,
+  //     input_size, conv1_in_channel, conv1_out_channel, conv1_kernel_size);
+  // cudaDeviceSynchronize();
 
   // DimGrid.y = batch; DimGrid.x = conv1_out_channel;
   // DimBlock.y = input_size;
@@ -321,6 +374,18 @@ void LeNet5_cuda::predict(int batch) {
   // cuda_conv2<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, batch, input_size,
   //     input_size, conv1_in_channel, conv1_out_channel, conv1_kernel_size);
   // cudaDeviceSynchronize();
+
+  DimGrid.y = batch; DimGrid.x = conv1_in_channel;
+  DimBlock.y = input_size - (conv1_kernel_size - 1);
+  DimBlock.x = input_size - (conv1_kernel_size - 1);
+  cuda_im2col<<<DimGrid, DimBlock>>>(d_input, d_input_col, input_size, input_size, conv1_kernel_size);
+  cudaDeviceSynchronize();
+  DimGrid.y = batch; DimGrid.x = conv1_out_channel;
+  DimBlock.y = input_size - (conv1_kernel_size - 1);
+  DimBlock.x = input_size - (conv1_kernel_size - 1);
+  cuda_mm<<<DimGrid, DimBlock>>>(d_input_col, d_C1_feature_map, d_conv1_weight,
+     d_conv1_bias, conv1_in_channel, conv1_kernel_size);
+  cudaDeviceSynchronize();
 
   // cudaMemcpy(C1_feature_map, d_C1_feature_map,
   //            batch * conv1_out_channel * C1_size * C1_size * sizeof(double),
@@ -461,6 +526,9 @@ void LeNet5_cuda::prepare_device_memory(uint8_t* image) {
   cudaMalloc((void**)&d_F6_layer, sizeof(double) * batch * F6_size);
   cudaMalloc((void**)&d_output, sizeof(double) * batch * output_size);
 
+  cudaMalloc((void**)&d_input_col,
+             sizeof(double) * batch * input_channel * conv1_kernel_size * conv1_kernel_size * C1_size * C1_size);
+
   // Copy Parameters
   cudaMemcpy(d_conv1_weight, conv1_weight,
              sizeof(double) * conv1_in_channel * conv1_out_channel *
@@ -525,4 +593,6 @@ LeNet5_cuda::~LeNet5_cuda() {
   cudaFree(d_F6_layer);
   cudaFree(d_output);
   cudaFree(d_predict_cuda);
+
+  cudaFree(d_input_col);
 }
