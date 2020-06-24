@@ -4,7 +4,7 @@
 NVCC=/usr/local/cuda-10.2/bin/nvcc
 BUILD=build
 SRC=src
-FLAGS=-std=c++11 -O3 $(shell pkg-config --cflags opencv4)
+FLAGS=-std=c++11 -O3 -gencode=arch=compute_75,code=sm_75 $(shell pkg-config --cflags opencv4)
 LIBS=$(shell pkg-config --libs opencv4)
 
 #########################
@@ -14,10 +14,10 @@ predict: $(BUILD)/main.o $(BUILD)/util.o $(BUILD)/LeNet5_cpu.o $(BUILD)/LeNet5_c
 	$(NVCC) $(FLAGS) $(LIBS) -o $@ $^
 
 $(BUILD)/main.o: $(SRC)/main.cpp $(BUILD)/util.o $(BUILD)/LeNet5.o $(BUILD)/LeNet5_cpu.o $(BUILD)/LeNet5_cuda.o
-	$(NVCC) $(FLAGS) $(LIBS) -o $@ -c $< 
+	$(NVCC) $(FLAGS) $(LIBS) -o $@ -c $<
 
 $(BUILD)/util.o: $(SRC)/util.cpp
-	$(NVCC) $(FLAGS) $(LIBS) -o $@ -c $< 
+	$(NVCC) $(FLAGS) $(LIBS) -o $@ -c $<
 
 $(BUILD)/LeNet5_cpu.o: $(SRC)/LeNet5_cpu.cpp $(BUILD)/LeNet5.o
 	$(NVCC) $(FLAGS) $(LIBS) -o $@ -c $<
@@ -36,11 +36,11 @@ run_on_server: predict
 # Hello World
 #########################
 hello_cpu: $(SRC)/hello.cpp
-	$(NVCC) $(FLAGS) $(LIBS) -o $@ $< 
+	$(NVCC) $(FLAGS) $(LIBS) -o $@ $<
 	./$@
 
 hello_cuda: $(SRC)/hello.cu
-	$(NVCC) $(FLAGS) $(LIBS) -o $@ $< 
+	$(NVCC) $(FLAGS) $(LIBS) -o $@ $<
 
 hello_run_on_server: hello_cuda
 	condor_submit $<.cmd
