@@ -1,7 +1,7 @@
 #include "LeNet5_cuda.h"
 
 __global__
-void normalize(uint8_t* image, double* input) {
+void normalize(uint8_t* image, float* input) {
   // Initialize variables
   // double max_int = 255.0L;
   // double mean = 0.5L;
@@ -19,8 +19,8 @@ void normalize(uint8_t* image, double* input) {
   //               + threadIdx.y * blockDim.x
   //               + threadIdx.x;
   int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
-  input[taskIdx] = image[taskIdx] / double(255.0);
-  input[taskIdx] = (input[taskIdx] - 0.5) / 0.5;
+  input[taskIdx] = (float)image[taskIdx] / 255.0f;
+  input[taskIdx] = (input[taskIdx] - 0.5f) / 0.5f;
 }
 
 __global__
@@ -64,7 +64,7 @@ void cuda_conv(double* input, double* output, double* weight,
 }
 
 __global__
-void cuda_conv1(double* input, double* output, double* weight,
+void cuda_conv1(float* input, float* output, double* weight,
                       double* bias) {
     // blockIdx.y : mini-batch (b)
     // blockIdx.x : output Channel (oc), gridDim.x : OC
@@ -82,7 +82,7 @@ void cuda_conv1(double* input, double* output, double* weight,
     // int IC = 3;
     // int K = 5;
 
-    double val = bias[oc];
+    float val = (float)bias[oc];
     #pragma unroll
     for (int ic=0; ic<3; ic++) {
       int input_base = b * 3072 + ic * 1024
@@ -93,7 +93,7 @@ void cuda_conv1(double* input, double* output, double* weight,
         #pragma unroll
         for (int kw = 0; kw < 5; kw++) {
           val += input[input_base + kh * 32 + kw] *
-                 weight[kernel_base + kh * 5 + kw];
+                 (float)weight[kernel_base + kh * 5 + kw];
         }
     }
     // #pragma unroll
@@ -119,7 +119,7 @@ void cuda_conv1(double* input, double* output, double* weight,
 }
 
 __global__
-void cuda_conv2(double* input, double* output, double* weight,
+void cuda_conv2(float* input, float* output, double* weight,
                       double* bias) {
     // blockIdx.y : mini-batch (b)
     // blockIdx.x : output Channel (oc), gridDim.x : OC
@@ -137,7 +137,7 @@ void cuda_conv2(double* input, double* output, double* weight,
     int IC = 6;
     int K = 5;
 
-    double val = bias[oc];
+    float val = (float)bias[oc];
     #pragma unroll
     for (int ic=0; ic<6; ic++) {
       int input_base = b * (IC * H * W) + ic * (H * W)
@@ -148,7 +148,7 @@ void cuda_conv2(double* input, double* output, double* weight,
         #pragma unroll
         for (int kw = 0; kw < 5; kw++) {
           val += input[input_base + kh * (W) + kw] *
-                 weight[kernel_base + kh * (K) + kw];
+                 (float)weight[kernel_base + kh * (K) + kw];
         }
     }
 
@@ -328,18 +328,18 @@ void cuda_mm(double* input, double* output, double* weight, double* bias, int IC
 }
 
 __global__
-void cuda_relu(double* feature_map) {
+void cuda_relu(float* feature_map) {
   // for (int i = 0; i < size; i++) feature_map[i] = std::max(feature_map[i], 0.0);
   // blockIdx.x : [batch, channel]
   // threadIdx.x : [H, W]
   int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
   // if (feature_map[taskIdx] < 0.0)
   //   feature_map[taskIdx] = 0.0;
-  feature_map[taskIdx] = fmax(feature_map[taskIdx], 0.0);
+  feature_map[taskIdx] = fmaxf(feature_map[taskIdx], 0.0f);
 }
 
 __global__
-void cuda_pool(double* input, double* output) {
+void cuda_pool(float* input, float* output) {
   // // Initilaize variable
   // int scale = 2;
   // int H_OUT = H / scale;
@@ -391,16 +391,16 @@ void cuda_pool(double* input, double* output) {
                 + blockIdx.x * BLKSIZE2
                 + (2*threadIdx.y) * (2*blockDim.x)
                 + (2*threadIdx.x);
-  double max_val = 0.0;
+  float max_val = 0.0f;
   #pragma unroll
   for (int sh = 0; sh < 2; sh++)
     #pragma unroll
     for (int sw = 0; sw < 2; sw++) {
-      double val = input[input_base + sh * (2*blockDim.x) + sw];
+      float val = input[input_base + sh * (2*blockDim.x) + sw];
       // if(val > max_val) {
       //   max_val = val;
       // }
-      max_val = fmax(max_val, val);
+      max_val = fmaxf(max_val, val);
     }
   // output[taskIdx] = max_val;
   output[blockIdx.y * gridDim.x * BLKSIZE + blockIdx.x * BLKSIZE
@@ -429,7 +429,7 @@ void cuda_fc(double* input, double* output, double* weight, double* bias,
 }
 
 __global__
-void cuda_fc1(double* input, double* output, double* weight, double* bias) {
+void cuda_fc1(float* input, float* output, double* weight, double* bias) {
   // // Fully Connected
   // for (int b = 0; b < B; b++)
   //   for (int oc = 0; oc < OC; oc++) {
@@ -442,16 +442,16 @@ void cuda_fc1(double* input, double* output, double* weight, double* bias) {
   // threadIdx.x : out_channel
   int IC = 400;
   int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
-  double val = bias[threadIdx.x];
+  float val = bias[threadIdx.x];
   #pragma unroll
   for(int ic=0; ic<400; ic++) {
-    val += weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
+    val += (float)weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
   }
   output[taskIdx] = val;
 }
 
 __global__
-void cuda_fc2(double* input, double* output, double* weight, double* bias) {
+void cuda_fc2(float* input, float* output, double* weight, double* bias) {
   // // Fully Connected
   // for (int b = 0; b < B; b++)
   //   for (int oc = 0; oc < OC; oc++) {
@@ -464,16 +464,16 @@ void cuda_fc2(double* input, double* output, double* weight, double* bias) {
   // threadIdx.x : out_channel
   int IC = 120;
   int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
-  double val = bias[threadIdx.x];
+  float val = bias[threadIdx.x];
   #pragma unroll
   for(int ic=0; ic<120; ic++) {
-    val += weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
+    val += (float)weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
   }
   output[taskIdx] = val;
 }
 
 __global__
-void cuda_fc3(double* input, double* output, double* weight, double* bias) {
+void cuda_fc3(float* input, double* output, double* weight, double* bias) {
   // // Fully Connected
   // for (int b = 0; b < B; b++)
   //   for (int oc = 0; oc < OC; oc++) {
@@ -486,12 +486,12 @@ void cuda_fc3(double* input, double* output, double* weight, double* bias) {
   // threadIdx.x : out_channel
   int IC = 84;
   int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
-  double val = bias[threadIdx.x];
+  float val = bias[threadIdx.x];
   #pragma unroll
   for(int ic=0; ic<84; ic++) {
-    val += weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
+    val += (float)weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
   }
-  output[taskIdx] = val;
+  output[taskIdx] = (double)val;
 }
 
 void LeNet5_cuda::predict(int batch) {
@@ -709,17 +709,17 @@ void LeNet5_cuda::prepare_device_memory(uint8_t* image) {
   cudaMalloc((void**)&d_image,
              sizeof(uint8_t) * batch * input_size * input_size * input_channel);
   cudaMalloc((void**)&d_input,
-             sizeof(double) * batch * input_channel * input_size * input_size);
+             sizeof(float) * batch * input_channel * input_size * input_size);
   cudaMalloc((void**)&d_C1_feature_map,
-             sizeof(double) * batch * C1_channel * C1_size * C1_size);
+             sizeof(float) * batch * C1_channel * C1_size * C1_size);
   cudaMalloc((void**)&d_S2_feature_map,
-             sizeof(double) * batch * S2_channel * S2_size * S2_size);
+             sizeof(float) * batch * S2_channel * S2_size * S2_size);
   cudaMalloc((void**)&d_C3_feature_map,
-             sizeof(double) * batch * C3_channel * C3_size * C3_size);
+             sizeof(float) * batch * C3_channel * C3_size * C3_size);
   cudaMalloc((void**)&d_S4_feature_map,
-             sizeof(double) * batch * S4_channel * S4_size * S4_size);
-  cudaMalloc((void**)&d_C5_layer, sizeof(double) * batch * C5_size);
-  cudaMalloc((void**)&d_F6_layer, sizeof(double) * batch * F6_size);
+             sizeof(float) * batch * S4_channel * S4_size * S4_size);
+  cudaMalloc((void**)&d_C5_layer, sizeof(float) * batch * C5_size);
+  cudaMalloc((void**)&d_F6_layer, sizeof(float) * batch * F6_size);
   cudaMalloc((void**)&d_output, sizeof(double) * batch * output_size);
 
   // cudaMalloc((void**)&d_input_col,

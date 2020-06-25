@@ -35,17 +35,17 @@ private:
     // Device Feature Maps
     //////////////////////////////////////////////////
     uint8_t* d_image;          // [batch][3][32][32];
-    double* d_input;          // [batch][3][32][32];
-    double* d_C1_feature_map; // [batch][6][28][28];
-    double* d_S2_feature_map; // [batch][6][14][14];
-    double* d_C3_feature_map; // [batch][16][10][10];
-    double* d_S4_feature_map; // [batch][16][5][5];
-    double* d_C5_layer;       // [batch][120];
-    double* d_F6_layer;       // [batch][84];
+    float* d_input;          // [batch][3][32][32];
+    float* d_C1_feature_map; // [batch][6][28][28];
+    float* d_S2_feature_map; // [batch][6][14][14];
+    float* d_C3_feature_map; // [batch][16][10][10];
+    float* d_S4_feature_map; // [batch][16][5][5];
+    float* d_C5_layer;       // [batch][120];
+    float* d_F6_layer;       // [batch][84];
     double* d_output;         // [batch][10];
     int*    d_predict_cuda;   // [batch];
 
-    double* d_input_col;         // [batch][3*5*5][28*28]
+    // double* d_input_col;         // [batch][3*5*5][28*28]
 
 
      // Functions
