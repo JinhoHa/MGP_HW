@@ -1,11 +1,11 @@
 #include "LeNet5_cuda.h"
 
 __global__
-void normalize(uint8_t* image, double* input, int batch, int input_channel, int input_size) {
+void normalize(uint8_t* image, double* input) {
   // Initialize variables
-  double max_int = 255.0L;
-  double mean = 0.5L;
-  double var = 0.5L;
+  // double max_int = 255.0L;
+  // double mean = 0.5L;
+  // double var = 0.5L;
   // // Normalize
   // for (int i = 0; i < batch * input_channel * input_size * input_size; i++) {
   //   input[i] = image[i] / max_int;       // transforms.ToTensor();
@@ -14,12 +14,13 @@ void normalize(uint8_t* image, double* input, int batch, int input_channel, int 
   // cuda
   // blockIdx.y : batch, blockIdx.x : Channel
   // threadIdx.y : input_size, threadIdx.x : input_size
-  int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
-                + blockIdx.x * blockDim.y * blockDim.x
-                + threadIdx.y * blockDim.x
-                + threadIdx.x;
-  input[taskIdx] = image[taskIdx] / max_int;
-  input[taskIdx] = (input[taskIdx] - mean) / var;
+  // int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
+  //               + blockIdx.x * blockDim.y * blockDim.x
+  //               + threadIdx.y * blockDim.x
+  //               + threadIdx.x;
+  int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
+  input[taskIdx] = image[taskIdx] / double(255.0);
+  input[taskIdx] = (input[taskIdx] - 0.5) / 0.5;
 }
 
 __global__
@@ -47,19 +48,24 @@ void cuda_conv(double* input, double* output, double* weight,
     for (int ic=0; ic<IC; ic++) {
       int input_base = b * (IC * H * W) + ic * (H * W)
                        + h * (W) + w;
+      // int input_base = fma(b, IC, ic) * (H * W) + fma(h, W, w);
       int kernel_base = oc * (IC * K * K) + ic * (K * K);
+      // int kernel_base = fma(oc, IC, ic) * (K * K);
       for (int kh = 0; kh < K; kh++)
         for (int kw = 0; kw < K; kw++) {
           val += input[input_base + kh * (W) + kw] *
                  weight[kernel_base + kh * (K) + kw];
+          // val += input[input_base + fma(kh, W, kw)] *
+          //        weight[kernel_base + fma(kh, K, kw)];
         }
     }
     output[b * OC * BLKSIZE + oc * BLKSIZE + h * W_OUT + w] = val;
+    // output[fma(b, OC, oc) * H_OUT * W_OUT + fma(h, W_OUT, w)] = val;
 }
 
 __global__
 void cuda_conv1(double* input, double* output, double* weight,
-                      double* bias, int IC, int K) {
+                      double* bias) {
     // blockIdx.y : mini-batch (b)
     // blockIdx.x : output Channel (oc), gridDim.x : OC
     // threadIdx.y : Height (h), blockDim.y : H_OUT
@@ -73,9 +79,12 @@ void cuda_conv1(double* input, double* output, double* weight,
     int W = 32;
     int H_OUT = 28;
     int W_OUT = 28;
+    int IC = 3;
+    int K = 5;
 
     double val = bias[oc];
-    for (int ic=0; ic<IC; ic++) {
+    #pragma unroll
+    for (int ic=0; ic<3; ic++) {
       int input_base = b * (IC * H * W) + ic * (H * W)
                        + h * (W) + w;
       int kernel_base = oc * (IC * K * K) + ic * (K * K);
@@ -96,7 +105,7 @@ void cuda_conv1(double* input, double* output, double* weight,
 
 __global__
 void cuda_conv2(double* input, double* output, double* weight,
-                      double* bias, int IC, int K) {
+                      double* bias) {
     // blockIdx.y : mini-batch (b)
     // blockIdx.x : output Channel (oc), gridDim.x : OC
     // threadIdx.y : Height (h), blockDim.y : H_OUT
@@ -110,9 +119,12 @@ void cuda_conv2(double* input, double* output, double* weight,
     int W = 14;
     int H_OUT = 10;
     int W_OUT = 10;
+    int IC = 6;
+    int K = 5;
 
     double val = bias[oc];
-    for (int ic=0; ic<IC; ic++) {
+    #pragma unroll
+    for (int ic=0; ic<6; ic++) {
       int input_base = b * (IC * H * W) + ic * (H * W)
                        + h * (W) + w;
       int kernel_base = oc * (IC * K * K) + ic * (K * K);
@@ -133,29 +145,9 @@ void cuda_conv2(double* input, double* output, double* weight,
 
 // shared memory
 __global__
-void cuda_conv_sh(double* input, double* output, double* weight,
+void cuda_conv1_sh(double* input, double* output, double* weight,
                       double* bias, int B, int H, int W, int IC, int OC,
                       int K) {
-    // // blockIdx.y : mini-batch (b)
-    // // blockIdx.x : output Channel (oc)
-    // // threadIdx.y : Height (h), BlockDim.y : H - (K - 1)
-    // // threadIdx.x : Width (w), BlockDim.x : W - (K - 1)
-    // int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
-    //               + blockIdx.x * blockDim.y * blockDim.x
-    //               + threadIdx.y * blockDim.x
-    //               + threadIdx.x;
-    // double val = bias[blockIdx.x];
-    // for (int ic=0; ic<IC; ic++) {
-    //   int input_base = blockIdx.y * (IC * H * W) + ic * (H * W)
-    //                    + threadIdx.y * (W) + threadIdx.x;
-    //   int kernel_base = blockIdx.x * (IC * K * K) + ic * (K * K);
-    //   for (int kh = 0; kh < K; kh++)
-    //     for (int kw = 0; kw < K; kw++) {
-    //       val += input[input_base + kh * (W) + kw] *
-    //              weight[kernel_base + kh * (K) + kw];
-    //     }
-    // }
-    // output[taskIdx] = val;
 
     int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
                   + blockIdx.x * blockDim.y * blockDim.x
@@ -324,8 +316,9 @@ void cuda_relu(double* feature_map) {
   // blockIdx.x : [batch, channel]
   // threadIdx.x : [H, W]
   int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (feature_map[taskIdx] < 0.0)
-    feature_map[taskIdx] = 0.0;
+  // if (feature_map[taskIdx] < 0.0)
+  //   feature_map[taskIdx] = 0.0;
+  feature_map[taskIdx] = fmax(feature_map[taskIdx], 0.0);
 }
 
 __global__
@@ -363,23 +356,36 @@ void cuda_pool(double* input, double* output) {
   // blockIdx.x : Channel
   // threadIdx.y : output h
   // threadIdx.x : output w
-  int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
-                + blockIdx.x * blockDim.y * blockDim.x
-                + threadIdx.y * blockDim.x
-                + threadIdx.x;
-  int input_base = blockIdx.y * gridDim.x * (2*blockDim.y) * (2*blockDim.x)
-                + blockIdx.x * (2*blockDim.y) * (2*blockDim.x)
+  int BLKSIZE = blockDim.y * blockDim.x;
+  // int taskIdx = blockIdx.y * gridDim.x * blockDim.y * blockDim.x
+  //               + blockIdx.x * blockDim.y * blockDim.x
+  //               + threadIdx.y * blockDim.x
+  //               + threadIdx.x;
+  // int taskIdx = blockIdx.y * gridDim.x * BLKSIZE
+  //               + blockIdx.x * BLKSIZE
+  //               + threadIdx.y * blockDim.x
+  //               + threadIdx.x;
+  int BLKSIZE2 = 4 * BLKSIZE;
+  // int input_base = blockIdx.y * gridDim.x * (2*blockDim.y) * (2*blockDim.x)
+  //               + blockIdx.x * (2*blockDim.y) * (2*blockDim.x)
+  //               + (2*threadIdx.y) * (2*blockDim.x)
+  //               + (2*threadIdx.x);
+  int input_base = blockIdx.y * gridDim.x * BLKSIZE2
+                + blockIdx.x * BLKSIZE2
                 + (2*threadIdx.y) * (2*blockDim.x)
                 + (2*threadIdx.x);
   double max_val = 0.0;
   for (int sh = 0; sh < 2; sh++)
     for (int sw = 0; sw < 2; sw++) {
       double val = input[input_base + sh * (2*blockDim.x) + sw];
-      if(val > max_val) {
-        max_val = val;
-      }
+      // if(val > max_val) {
+      //   max_val = val;
+      // }
+      max_val = fmax(max_val, val);
     }
-  output[taskIdx] = max_val;
+  // output[taskIdx] = max_val;
+  output[blockIdx.y * gridDim.x * BLKSIZE + blockIdx.x * BLKSIZE
+                + threadIdx.y * blockDim.x + threadIdx.x] = max_val;
 }
 
 __global__
@@ -409,36 +415,36 @@ void LeNet5_cuda::predict(int batch) {
   // size_t image_size = batch * input_size * input_size * input_channel;
   // cudaMemcpy(image, d_image, image_size * sizeof(uint8_t),
   //            cudaMemcpyDeviceToHost);
-  // ToTensor and Normalize
-  dim3 DimGrid(input_channel, batch);
-  dim3 DimBlock(input_size, input_size);
-  normalize<<<DimGrid, DimBlock>>>(d_image, d_input, batch, input_channel, input_size);
+  /************************* Normalize **********************/
+  dim3 DimGrid(input_channel * batch);
+  dim3 DimBlock(input_size * input_size);
+  normalize<<<DimGrid, DimBlock>>>(d_image, d_input);
   cudaDeviceSynchronize();
 
   // cudaMemcpy(input, d_input,
   //            batch * input_size * input_size * input_channel * sizeof(double),
   //            cudaMemcpyDeviceToHost);
 
-  // Conv2d
+  // *********** Conv1 ***************//
+
+  // DimGrid.y = batch; DimGrid.x = conv1_out_channel;
+  // DimBlock.y = 28; //input_size - (conv1_kernel_size - 1);
+  // DimBlock.x = 28; //input_size - (conv1_kernel_size - 1);
+  // cuda_conv<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, input_size,
+  //     input_size, conv1_in_channel, conv1_kernel_size);
+  // cudaDeviceSynchronize();
 
   DimGrid.y = batch; DimGrid.x = conv1_out_channel;
-  DimBlock.y = 28; //input_size - (conv1_kernel_size - 1);
-  DimBlock.x = 28; //input_size - (conv1_kernel_size - 1);
-  cuda_conv<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, input_size,
-      input_size, conv1_in_channel, conv1_kernel_size);
+  DimBlock.y = 28;
+  DimBlock.x = 28;
+  cuda_conv1<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight,
+      d_conv1_bias);
   cudaDeviceSynchronize();
 
   // DimGrid.y = batch; DimGrid.x = conv1_out_channel;
   // DimBlock.y = 28;
   // DimBlock.x = 28;
-  // cuda_conv1<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight,
-  //     d_conv1_bias, conv1_in_channel, conv1_kernel_size);
-  // cudaDeviceSynchronize();
-
-  // DimGrid.y = batch; DimGrid.x = conv1_out_channel;
-  // DimBlock.y = input_size;
-  // DimBlock.x = input_size;
-  // cuda_conv_sh32<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, batch, input_size,
+  // cuda_conv1_sh<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight, d_conv1_bias, batch, input_size,
   //     input_size, conv1_in_channel, conv1_out_channel, conv1_kernel_size);
   // cudaDeviceSynchronize();
 
@@ -458,6 +464,8 @@ void LeNet5_cuda::predict(int batch) {
   //            batch * conv1_out_channel * C1_size * C1_size * sizeof(double),
   //            cudaMemcpyDeviceToHost);
 
+  /**************** relu *****************/
+
   DimGrid.y = 1; DimGrid.x = batch * C1_channel;
   DimBlock.y = 1; DimBlock.x = C1_size * C1_size;
   cuda_relu<<<DimGrid, DimBlock>>>(d_C1_feature_map);
@@ -467,6 +475,7 @@ void LeNet5_cuda::predict(int batch) {
   //            batch * conv1_out_channel * C1_size * C1_size * sizeof(double),
   //            cudaMemcpyDeviceToHost);
 
+/******************** Pool1 **********************/
   // MaxPool2d
   DimGrid.y = batch; DimGrid.x = C1_channel;
   DimBlock.y = C1_size / 2; DimBlock.x = C1_size / 2;
@@ -477,28 +486,31 @@ void LeNet5_cuda::predict(int batch) {
   //            batch * C1_channel * (C1_size / 2) * (C1_size / 2) * sizeof(double),
   //            cudaMemcpyDeviceToHost);
 
-  // Conv2
-
-  DimGrid.y = batch; DimGrid.x = conv2_out_channel;
-  DimBlock.y = 10; //S2_size - (conv2_kernel_size - 1);
-  DimBlock.x = 10; //S2_size - (conv2_kernel_size - 1);
-  cuda_conv<<<DimGrid, DimBlock>>>(d_S2_feature_map, d_C3_feature_map,
-      d_conv2_weight, d_conv2_bias, S2_size,
-      S2_size, conv2_in_channel, conv2_kernel_size);
-  cudaDeviceSynchronize();
+  /************************ Conv2 *****************************/
 
   // DimGrid.y = batch; DimGrid.x = conv2_out_channel;
   // DimBlock.y = 10; //S2_size - (conv2_kernel_size - 1);
   // DimBlock.x = 10; //S2_size - (conv2_kernel_size - 1);
-  // cuda_conv2<<<DimGrid, DimBlock>>>(d_S2_feature_map, d_C3_feature_map,
-  //     d_conv2_weight, d_conv2_bias, conv2_in_channel, conv2_kernel_size);
+  // cuda_conv<<<DimGrid, DimBlock>>>(d_S2_feature_map, d_C3_feature_map,
+  //     d_conv2_weight, d_conv2_bias, S2_size,
+  //     S2_size, conv2_in_channel, conv2_kernel_size);
   // cudaDeviceSynchronize();
+
+  DimGrid.y = batch; DimGrid.x = conv2_out_channel;
+  DimBlock.y = 10; //S2_size - (conv2_kernel_size - 1);
+  DimBlock.x = 10; //S2_size - (conv2_kernel_size - 1);
+  cuda_conv2<<<DimGrid, DimBlock>>>(d_S2_feature_map, d_C3_feature_map,
+      d_conv2_weight, d_conv2_bias);
+  cudaDeviceSynchronize();
+
+  /****************************relu****************************/
 
   DimGrid.y = 1; DimGrid.x = batch * C3_channel;
   DimBlock.y = 1; DimBlock.x = C3_size * C3_size;
   cuda_relu<<<DimGrid, DimBlock>>>(d_C3_feature_map);
   cudaDeviceSynchronize();
 
+/*************************** Pool2 ****************************/
   // MaxPool2d
   DimGrid.y = batch; DimGrid.x = C3_channel;
   DimBlock.y = C3_size / 2; DimBlock.x = C3_size / 2;
@@ -509,6 +521,7 @@ void LeNet5_cuda::predict(int batch) {
   //            batch * C3_channel * (C3_size / 2) * (C3_size / 2) * sizeof(double),
   //            cudaMemcpyDeviceToHost);
 
+/*************************** fc1 ***************************/
   // Linear
   DimGrid.y = 1; DimGrid.x = batch;
   DimBlock.y = 1; DimBlock.x = fc1_out_channel;
@@ -520,11 +533,13 @@ void LeNet5_cuda::predict(int batch) {
   //            batch * fc1_out_channel * sizeof(double),
   //            cudaMemcpyDeviceToHost);
 
+/*************************** relu ***********************/
   DimGrid.y = 1; DimGrid.x = batch;
   DimBlock.y = 1; DimBlock.x = C5_size;
   cuda_relu<<<DimGrid, DimBlock>>>(d_C5_layer);
   cudaDeviceSynchronize();
 
+/************************* fc2 ************************/
   // Linear
   DimGrid.y = 1; DimGrid.x = batch;
   DimBlock.y = 1; DimBlock.x = fc2_out_channel;
@@ -532,11 +547,13 @@ void LeNet5_cuda::predict(int batch) {
     d_fc2_weight, d_fc2_bias, fc2_in_channel);
   cudaDeviceSynchronize();
 
+/*************************** relu ***********************/
   DimGrid.y = 1; DimGrid.x = batch;
   DimBlock.y = 1; DimBlock.x = F6_size;
   cuda_relu<<<DimGrid, DimBlock>>>(d_F6_layer);
   cudaDeviceSynchronize();
 
+/****************************** fc3 *************************/
   // Linear
   DimGrid.y = 1; DimGrid.x = batch;
   DimBlock.y = 1; DimBlock.x = fc3_out_channel;
