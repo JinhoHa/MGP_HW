@@ -1,6 +1,12 @@
 #include "LeNet5_cuda.h"
 
 __global__
+void doubleToFloat(double* darray, float* farray) {
+  int taskIdx = blockIdx.x * blockDim.x + threadIdx.x;
+  farray[taskIdx] = (float)darray[taskIdx];
+}
+
+__global__
 void normalize(uint8_t* image, float* input) {
   // Initialize variables
   // double max_int = 255.0L;
@@ -64,8 +70,8 @@ void cuda_conv(double* input, double* output, double* weight,
 }
 
 __global__
-void cuda_conv1(float* input, float* output, double* weight,
-                      double* bias) {
+void cuda_conv1(float* input, float* output, float* weight,
+                      float* bias) {
     // blockIdx.y : mini-batch (b)
     // blockIdx.x : output Channel (oc), gridDim.x : OC
     // threadIdx.y : Height (h), blockDim.y : H_OUT
@@ -82,7 +88,7 @@ void cuda_conv1(float* input, float* output, double* weight,
     // int IC = 3;
     // int K = 5;
 
-    float val = (float)bias[oc];
+    float val = bias[oc];
     #pragma unroll
     for (int ic=0; ic<3; ic++) {
       int input_base = b * 3072 + ic * 1024
@@ -93,7 +99,7 @@ void cuda_conv1(float* input, float* output, double* weight,
         #pragma unroll
         for (int kw = 0; kw < 5; kw++) {
           val += input[input_base + kh * 32 + kw] *
-                 (float)weight[kernel_base + kh * 5 + kw];
+                 weight[kernel_base + kh * 5 + kw];
         }
     }
     // #pragma unroll
@@ -119,8 +125,8 @@ void cuda_conv1(float* input, float* output, double* weight,
 }
 
 __global__
-void cuda_conv2(float* input, float* output, double* weight,
-                      double* bias) {
+void cuda_conv2(float* input, float* output, float* weight,
+                      float* bias) {
     // blockIdx.y : mini-batch (b)
     // blockIdx.x : output Channel (oc), gridDim.x : OC
     // threadIdx.y : Height (h), blockDim.y : H_OUT
@@ -137,7 +143,7 @@ void cuda_conv2(float* input, float* output, double* weight,
     int IC = 6;
     int K = 5;
 
-    float val = (float)bias[oc];
+    float val = bias[oc];
     #pragma unroll
     for (int ic=0; ic<6; ic++) {
       int input_base = b * (IC * H * W) + ic * (H * W)
@@ -148,7 +154,7 @@ void cuda_conv2(float* input, float* output, double* weight,
         #pragma unroll
         for (int kw = 0; kw < 5; kw++) {
           val += input[input_base + kh * (W) + kw] *
-                 (float)weight[kernel_base + kh * (K) + kw];
+                 weight[kernel_base + kh * (K) + kw];
         }
     }
 
@@ -429,7 +435,7 @@ void cuda_fc(double* input, double* output, double* weight, double* bias,
 }
 
 __global__
-void cuda_fc1(float* input, float* output, double* weight, double* bias) {
+void cuda_fc1(float* input, float* output, float* weight, float* bias) {
   // // Fully Connected
   // for (int b = 0; b < B; b++)
   //   for (int oc = 0; oc < OC; oc++) {
@@ -445,13 +451,13 @@ void cuda_fc1(float* input, float* output, double* weight, double* bias) {
   float val = bias[threadIdx.x];
   #pragma unroll
   for(int ic=0; ic<400; ic++) {
-    val += (float)weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
+    val += weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
   }
   output[taskIdx] = val;
 }
 
 __global__
-void cuda_fc2(float* input, float* output, double* weight, double* bias) {
+void cuda_fc2(float* input, float* output, float* weight, float* bias) {
   // // Fully Connected
   // for (int b = 0; b < B; b++)
   //   for (int oc = 0; oc < OC; oc++) {
@@ -467,13 +473,13 @@ void cuda_fc2(float* input, float* output, double* weight, double* bias) {
   float val = bias[threadIdx.x];
   #pragma unroll
   for(int ic=0; ic<120; ic++) {
-    val += (float)weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
+    val += weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
   }
   output[taskIdx] = val;
 }
 
 __global__
-void cuda_fc3(float* input, double* output, double* weight, double* bias) {
+void cuda_fc3(float* input, double* output, float* weight, float* bias) {
   // // Fully Connected
   // for (int b = 0; b < B; b++)
   //   for (int oc = 0; oc < OC; oc++) {
@@ -489,12 +495,43 @@ void cuda_fc3(float* input, double* output, double* weight, double* bias) {
   float val = bias[threadIdx.x];
   #pragma unroll
   for(int ic=0; ic<84; ic++) {
-    val += (float)weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
+    val += weight[threadIdx.x * IC + ic] * input[blockIdx.x * IC + ic];
   }
   output[taskIdx] = (double)val;
 }
 
 void LeNet5_cuda::predict(int batch) {
+
+  cudaMalloc((void**)&d_f_conv1_weight,
+             sizeof(float) * conv1_in_channel * conv1_out_channel *
+                 conv1_kernel_size * conv1_kernel_size);
+  cudaMalloc((void**)&d_f_conv1_bias, sizeof(float) * conv1_out_channel);
+  cudaMalloc((void**)&d_f_conv2_weight,
+             sizeof(float) * conv2_in_channel * conv2_out_channel *
+                 conv2_kernel_size * conv2_kernel_size);
+  cudaMalloc((void**)&d_f_conv2_bias, sizeof(float) * conv2_out_channel);
+  cudaMalloc((void**)&d_f_fc1_weight,
+             sizeof(float) * fc1_in_channel * fc1_out_channel);
+  cudaMalloc((void**)&d_f_fc1_bias, sizeof(float) * fc1_out_channel);
+  cudaMalloc((void**)&d_f_fc2_weight,
+             sizeof(float) * fc2_in_channel * fc2_out_channel);
+  cudaMalloc((void**)&d_f_fc2_bias, sizeof(float) * fc2_out_channel);
+  cudaMalloc((void**)&d_f_fc3_weight,
+             sizeof(float) * fc3_in_channel * fc3_out_channel);
+  cudaMalloc((void**)&d_f_fc3_bias, sizeof(float) * fc3_out_channel);
+
+  doubleToFloat<<<1, 450>>>(d_conv1_weight, d_f_conv1_weight);
+  doubleToFloat<<<6, 400>>>(d_conv2_weight, d_f_conv2_weight);
+  doubleToFloat<<<1, 6>>>(d_conv1_bias, d_f_conv1_bias);
+  doubleToFloat<<<1, 16>>>(d_conv2_bias, d_f_conv2_bias);
+  doubleToFloat<<<100, 480>>>(d_fc1_weight, d_f_fc1_weight);
+  doubleToFloat<<<20, 504>>>(d_fc2_weight, d_f_fc2_weight);
+  doubleToFloat<<<1, 840>>>(d_fc3_weight, d_f_fc3_weight);
+  doubleToFloat<<<1, 120>>>(d_fc1_bias, d_f_fc1_bias);
+  doubleToFloat<<<1, 84>>>(d_fc2_bias, d_f_fc2_bias);
+  doubleToFloat<<<1, 10>>>(d_fc3_bias, d_f_fc3_bias);
+
+
   // uint8_t* image;
   // image = new uint8_t[batch * IMG_SIZE];
   // size_t image_size = batch * input_size * input_size * input_channel;
@@ -522,8 +559,8 @@ void LeNet5_cuda::predict(int batch) {
   DimGrid.y = batch; DimGrid.x = conv1_out_channel;
   DimBlock.y = 28;
   DimBlock.x = 28;
-  cuda_conv1<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_conv1_weight,
-      d_conv1_bias);
+  cuda_conv1<<<DimGrid, DimBlock>>>(d_input, d_C1_feature_map, d_f_conv1_weight,
+      d_f_conv1_bias);
   cudaDeviceSynchronize();
 
   // DimGrid.y = batch; DimGrid.x = conv1_out_channel;
@@ -585,7 +622,7 @@ void LeNet5_cuda::predict(int batch) {
   DimBlock.y = 10; //S2_size - (conv2_kernel_size - 1);
   DimBlock.x = 10; //S2_size - (conv2_kernel_size - 1);
   cuda_conv2<<<DimGrid, DimBlock>>>(d_S2_feature_map, d_C3_feature_map,
-      d_conv2_weight, d_conv2_bias);
+      d_f_conv2_weight, d_f_conv2_bias);
   cudaDeviceSynchronize();
 
   /****************************relu****************************/
@@ -617,7 +654,7 @@ void LeNet5_cuda::predict(int batch) {
   DimGrid.y = 1; DimGrid.x = batch;
   DimBlock.y = 1; DimBlock.x = fc1_out_channel;
   cuda_fc1<<<DimGrid, DimBlock>>>(d_S4_feature_map, d_C5_layer,
-    d_fc1_weight, d_fc1_bias);
+    d_f_fc1_weight, d_f_fc1_bias);
   cudaDeviceSynchronize();
 
   // cudaMemcpy(C5_layer, d_C5_layer,
@@ -641,7 +678,7 @@ void LeNet5_cuda::predict(int batch) {
   DimGrid.y = 1; DimGrid.x = batch;
   DimBlock.y = 1; DimBlock.x = fc2_out_channel;
   cuda_fc2<<<DimGrid, DimBlock>>>(d_C5_layer, d_F6_layer,
-    d_fc2_weight, d_fc2_bias);
+    d_f_fc2_weight, d_f_fc2_bias);
   cudaDeviceSynchronize();
 
 /*************************** relu ***********************/
@@ -661,7 +698,7 @@ void LeNet5_cuda::predict(int batch) {
   DimGrid.y = 1; DimGrid.x = batch;
   DimBlock.y = 1; DimBlock.x = fc3_out_channel;
   cuda_fc3<<<DimGrid, DimBlock>>>(d_F6_layer, d_output,
-    d_fc3_weight, d_fc3_bias);
+    d_f_fc3_weight, d_f_fc3_bias);
   cudaDeviceSynchronize();
 
   // cudaMemcpy(d_output, output, sizeof(double) * output_size * batch,
@@ -778,6 +815,17 @@ LeNet5_cuda::~LeNet5_cuda() {
   cudaFree(d_fc1_bias);
   cudaFree(d_fc2_bias);
   cudaFree(d_fc3_bias);
+
+  cudaFree(d_f_conv1_weight);
+  cudaFree(d_f_conv2_weight);
+  cudaFree(d_f_conv1_bias);
+  cudaFree(d_f_conv2_bias);
+  cudaFree(d_f_fc1_weight);
+  cudaFree(d_f_fc2_weight);
+  cudaFree(d_f_fc3_weight);
+  cudaFree(d_f_fc1_bias);
+  cudaFree(d_f_fc2_bias);
+  cudaFree(d_f_fc3_bias);
 
   cudaFree(d_image);
   cudaFree(d_input);

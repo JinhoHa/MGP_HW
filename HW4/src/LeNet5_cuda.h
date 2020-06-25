@@ -31,6 +31,17 @@ private:
     double* d_fc1_bias;       // [120];
     double* d_fc2_bias;       // [84];
     double* d_fc3_bias;       // [10];
+
+    float* d_f_conv1_weight;   // [3][6][5][5];
+    float* d_f_conv2_weight;   // [6][16][5][5];
+    float* d_f_conv1_bias;     // [6];
+    float* d_f_conv2_bias;     // [16];
+    float* d_f_fc1_weight;     // [400][120];
+    float* d_f_fc2_weight;     // [120][84];
+    float* d_f_fc3_weight;     // [84][10];
+    float* d_f_fc1_bias;       // [120];
+    float* d_f_fc2_bias;       // [84];
+    float* d_f_fc3_bias;       // [10];
     //////////////////////////////////////////////////
     // Device Feature Maps
     //////////////////////////////////////////////////
